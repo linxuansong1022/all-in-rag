@@ -2,12 +2,13 @@ import os
 # os.environ['HF_ENDPOINT']='https://hf-mirror.com'
 from dotenv import load_dotenv
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings 
-from llama_index.llms.deepseek import DeepSeek
+from llama_index.llms.gemini import Gemini
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 load_dotenv()
 
-Settings.llm = DeepSeek(model="deepseek-chat", api_key=os.getenv("DEEPSEEK_API_KEY"))
+# 使用 Gemini 模型
+Settings.llm = Gemini(model="models/gemini-flash-latest", api_key=os.getenv("GOOGLE_API_KEY"))
 Settings.embed_model = HuggingFaceEmbedding("BAAI/bge-small-zh-v1.5")
 
 docs = SimpleDirectoryReader(input_files=["../../data/C1/markdown/easy-rl-chapter1.md"]).load_data()

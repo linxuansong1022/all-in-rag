@@ -7,12 +7,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_deepseek import ChatDeepSeek
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
 
 markdown_path = "../../data/C1/markdown/easy-rl-chapter1.md"
-
 # 加载本地markdown文件
 loader = UnstructuredMarkdownLoader(markdown_path)
 docs = loader.load()
@@ -46,11 +45,13 @@ prompt = ChatPromptTemplate.from_template("""请根据下面提供的上下文�
                                           )
 
 # 配置大语言模型
-llm = ChatDeepSeek(
-    model="deepseek-chat",
+llm = ChatGoogleGenerativeAI(
+    model="models/gemini-flash-latest",
     temperature=0.7,
-    max_tokens=4096,
-    api_key=os.getenv("DEEPSEEK_API_KEY")
+    max_tokens=None,
+    timeout=None,
+    max_retries=2,
+    api_key=os.getenv("GOOGLE_API_KEY")
 )
 
 # 用户查询
