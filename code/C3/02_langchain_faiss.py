@@ -1,4 +1,4 @@
-from langchain_community.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS #本地向量检索库
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
@@ -9,7 +9,7 @@ texts = [
     "LangChain是一个用于开发由语言模型驱动的应用程序的框架。"
 ]
 docs = [Document(page_content=t) for t in texts]
-embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-small-zh-v1.5")
+embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-small-zh-v1.5")#选一个embedding 模型
 
 # 2. 创建向量存储并保存到本地
 vectorstore = FAISS.from_documents(docs, embeddings)
@@ -28,7 +28,7 @@ loaded_vectorstore = FAISS.load_local(
 )
 
 # 执行相似性搜索
-query = "FAISS是做什么的？"
+query = "谁是法外狂徒"
 results = loaded_vectorstore.similarity_search(query, k=1)
 
 print(f"\n查询: '{query}'")

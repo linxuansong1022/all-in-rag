@@ -75,7 +75,7 @@ def query_safe_recursive(query_str):
     
     # 获取匹配到的工作表名称
     matched_sheet_name = retrieved_nodes[0].node.metadata['sheet_name']
-    print(f"路由结果：匹配到工作表 -> {matched_sheet_name}")
+    print(f"路由结果：匹配到工作表 -> {matched_sheet_name}") 
     
     # 第二步：检索 - 在内容索引中根据工作表名称过滤并检索具体内容
     print("\n第二步：在内容索引中检索具体信息...")
