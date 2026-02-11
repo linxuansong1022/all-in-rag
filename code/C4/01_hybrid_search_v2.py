@@ -2,6 +2,7 @@ import json
 import os
 import numpy as np
 import torch
+import jieba
 from transformers import AutoModel, AutoProcessor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import csr_matrix
@@ -14,6 +15,9 @@ DATA_PATH = "../../data/C4/metadata/dragon.json"  # 相对路径
 BATCH_SIZE = 50
 
 # 2. 自定义SigLIP嵌入函数类
+# --- 核心知识点: DIY 混合检索模型 ---
+# 这个类展示了如何手动把“深度学习模型(Dense)”和“统计模型(Sparse)”组合在一起。
+# 场景：当你不想用通用的 BGE-M3，而是想用特定的行业模型（如 SigLIP）配合关键词搜索时。
 class SigLIPEmbeddingFunction:
     def __init__(self, model_name="google/siglip-base-patch16-256-multilingual", device="cpu"):
         """
@@ -25,19 +29,28 @@ class SigLIPEmbeddingFunction:
         self.model_name = model_name
         self.device = device
         
+        # 1. 初始化密集向量模型 (Dense Model - 语义理解)
+        # 作用：理解 "言外之意"。比如输入 "会喷火的生物"，它能联想到 "龙"。
+        # 模型：这里用的是 Google 的 SigLIP (类似 CLIP)，擅长多模态语义。
         print(f"--> 正在加载 SigLIP 模型: {model_name}")
         self.model = AutoModel.from_pretrained(model_name)
         self.processor = AutoProcessor.from_pretrained(model_name)
         self.model.to(device)
         self.model.eval()
-        
-        # 初始化TF-IDF作为稀疏向量生成器
+    
+        def chinese_tokenizer(text):
+            return list(jieba.cut(text))  
+       
+        # 2. 初始化稀疏向量模型 (Sparse Model - 关键词统计)
+        # 作用：死磕 "字面意思"。比如输入 "Smaug"，它只找包含 "Smaug" 的文档。
+        # 模型：TF-IDF (词频-逆文档频率)。它认为：在当前文档出现次数多，但在所有文档出现次数少的词，权重高。
         self.tfidf_vectorizer = TfidfVectorizer(
-            max_features=10000,  # 限制词汇表大小以节省空间
-            stop_words='english',
-            ngram_range=(1, 2)
+            tokenizer=chinese_tokenizer, # 必须用分词器，否则中文会被当成单字处理
+            max_features=10000,  # 词表上限，防止维度爆炸
+            stop_words=None,     # 中文停用词暂不设
+            ngram_range=(1, 2)   # 既统计"龙"，也统计"中国龙" (bigram)
         )
-        self.tfidf_fitted = False
+        self.tfidf_fitted = False # 标记是否已经学习过词汇表
         
         # 获取文本编码器的输出维度
         with torch.no_grad():
@@ -47,6 +60,8 @@ class SigLIPEmbeddingFunction:
             self.dense_dim = outputs.pooler_output.shape[-1]
         
         print(f"--> SigLIP 模型加载完成。密集向量维度: {self.dense_dim}")
+
+ 
     
     @property
     def dim(self):
@@ -57,14 +72,18 @@ class SigLIPEmbeddingFunction:
         }
     
     def fit_sparse(self, docs):
-        """拟合稀疏向量模型（TF-IDF）"""
+        """
+        拟合稀疏向量模型（TF-IDF）
+        注意：TF-IDF 是统计模型，必须先看过所有文档（语料库），
+        才知道哪些词是“常见词”（权重低），哪些是“稀有词”（权重高）。
+        """
         print("--> 正在拟合 TF-IDF 模型...")
         self.tfidf_vectorizer.fit(docs)
         self.tfidf_fitted = True
         print(f"--> TF-IDF 模型拟合完成。词汇表大小: {len(self.tfidf_vectorizer.vocabulary_)}")
     
     def encode_text_dense(self, texts):
-        """使用SigLIP编码文本为密集向量"""
+        """使用SigLIP编码文本为密集向量 (语义)"""
         if isinstance(texts, str):
             texts = [texts]
         
@@ -80,14 +99,14 @@ class SigLIPEmbeddingFunction:
                 outputs = self.model.text_model(**inputs)
                 embeddings = outputs.pooler_output
                 
-                # 归一化向量
+                # 归一化向量 (重要步骤！方便计算余弦相似度)
                 embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
                 dense_vectors.extend(embeddings.cpu().numpy())
         
         return np.array(dense_vectors)
     
     def encode_text_sparse(self, texts):
-        """使用TF-IDF编码文本为稀疏向量"""
+        """使用TF-IDF编码文本为稀疏向量 (关键词)"""
         if not self.tfidf_fitted:
             raise ValueError("请先调用 fit_sparse() 方法拟合TF-IDF模型")
         
@@ -98,16 +117,19 @@ class SigLIPEmbeddingFunction:
         return sparse_matrix
     
     def __call__(self, texts):
-        """主调用方法，返回密集和稀疏向量"""
+        """
+        主调用方法 (类似于 BGE-M3 的调用方式)
+        一次性返回两种向量，方便后续处理
+        """
         if isinstance(texts, str):
             texts = [texts]
         
-        # 如果还没有拟合稀疏模型，先拟合
+        # 如果还没有拟合稀疏模型，先拟合 (Lazy Loading)
         if not self.tfidf_fitted:
             self.fit_sparse(texts)
         
-        dense_vectors = self.encode_text_dense(texts)
-        sparse_vectors = self.encode_text_sparse(texts)
+        dense_vectors = self.encode_text_dense(texts)#产生密集向量 代表意思
+        sparse_vectors = self.encode_text_sparse(texts)#产生稀疏向量 代表字面
         
         return {
             "dense": dense_vectors,
@@ -233,7 +255,7 @@ else:
     print(f"--> Collection 中已有 {collection.num_entities} 条数据，跳过插入。")
 
 # 7. 执行搜索
-search_query = "悬崖上的巨龙"
+search_query = "白龙"
 search_filter = 'category in ["western_dragon", "chinese_dragon", "movie_character"]'
 top_k = 5
 
