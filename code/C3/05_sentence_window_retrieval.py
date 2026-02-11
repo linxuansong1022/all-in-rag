@@ -1,13 +1,16 @@
 import os
+from dotenv import load_dotenv
 from llama_index.core.node_parser import SentenceWindowNodeParser, SentenceSplitter
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
-from llama_index.core.llms import MockLLM
+from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.postprocessor import MetadataReplacementPostProcessor
 
+# 加载环境变量
+load_dotenv()
+
 # 1. 配置模型
-# 使用 MockLLM 绕过 API 检查，专注于检索效果的观察
-Settings.llm = MockLLM()
+Settings.llm = GoogleGenAI(model="models/gemini-2.0-flash", api_key=os.getenv("GOOGLE_API_KEY"))
 Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en")
 
 # 2. 加载文档
@@ -20,14 +23,15 @@ documents = SimpleDirectoryReader(
 print("正在构建索引（这可能需要一点时间）...")
 # 3.1 句子窗口索引
 node_parser = SentenceWindowNodeParser.from_defaults(
-    window_size=3,#记住前面3句和后面3句
-    window_metadata_key="window",
+    window_size=3,#记住前面3句和后面3句 一共7句话 的窗口
+    window_metadata_key="window", #把这7句话存在metadata 的 "window" 字段里
     original_text_metadata_key="original_text",
 )
+#这个索引用了上面那个“带口袋”的解析器
 sentence_nodes = node_parser.get_nodes_from_documents(documents)
 sentence_index = VectorStoreIndex(sentence_nodes)
 
-# 3.2 常规分块索引 (基准)
+# 3.2 常规分块索引 (基准) 每512字一切 作为基准对照组
 base_parser = SentenceSplitter(chunk_size=512)
 base_nodes = base_parser.get_nodes_from_documents(documents)
 base_index = VectorStoreIndex(base_nodes)
@@ -36,7 +40,7 @@ base_index = VectorStoreIndex(base_nodes)
 # 注意：我们这里主要看检索出来的原文，所以配置为显示源节点
 sentence_query_engine = sentence_index.as_query_engine(
     similarity_top_k=1,
-    node_postprocessors=[
+    node_postprocessors=[ #后处理器，当检索系统通过向量匹配到最像的那一句话（Node）后，在把这个 Node 交给 AI 之前，这个处理器会横插一杠子。它会去 Node 的口袋（metadata）里找 window 这个 key，把里面的长段落拿出来，直接覆盖掉原来的那一句话
         MetadataReplacementPostProcessor(target_metadata_key="window")
     ],
 )

@@ -1,3 +1,22 @@
+# ==============================================================================
+# 【笔记：07 递归检索 - 元数据过滤版】
+# 核心思想：
+#   这也是“递归检索”的一种形式，但它更侧重于“精准定位”。
+#   系统同样有两步操作：
+#   1. 第一步（路由）：先查摘要，找到用户问的是哪一年（哪张表）。
+#   2. 第二步（过滤）：利用数据库的 MetadataFilter 功能，
+#      只在命中的那张表里进行搜索。
+#
+# 绝招 (Metadata Filter)：
+#   不依赖 AI 写代码，而是利用“标签”来缩小搜索范围。
+#   例如：一旦确定用户问的是 1994 年，系统就给检索引擎加一个强力过滤器：
+#   "WHERE sheet_name = '年份_1994'"。
+#
+# 06 vs 07 的区别：
+#   - 06 (代码生成): 适合“计算型”问题（算平均分、排序）。风险是 AI 代码写错。
+#   - 07 (元数据过滤): 适合“查找型”问题（找某部电影的介绍）。极其稳定，不会报错。
+# ==============================================================================
+
 import os
 import pandas as pd
 from dotenv import load_dotenv
@@ -5,13 +24,13 @@ from llama_index.core import VectorStoreIndex, Document, Settings
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
-from llama_index.llms.deepseek import DeepSeek
+from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 load_dotenv()
 
 # 配置模型
-Settings.llm = DeepSeek(model="deepseek-chat", api_key=os.getenv("DEEPSEEK_API_KEY"))
+Settings.llm = GoogleGenAI(model="models/gemini-2.0-flash", api_key=os.getenv("GOOGLE_API_KEY"))
 Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-zh-v1.5")
 
 # 1. 加载和预处理数据
@@ -75,7 +94,7 @@ def query_safe_recursive(query_str):
     
     # 获取匹配到的工作表名称
     matched_sheet_name = retrieved_nodes[0].node.metadata['sheet_name']
-    print(f"路由结果：匹配到工作表 -> {matched_sheet_name}") 
+    print(f"路由结果：匹配到工作表 -> {matched_sheet_name}")
     
     # 第二步：检索 - 在内容索引中根据工作表名称过滤并检索具体内容
     print("\n第二步：在内容索引中检索具体信息...")
@@ -99,3 +118,4 @@ query = "1994年评分人数最少的电影是哪一部？"
 response = query_safe_recursive(query)
 
 print(f"最终回答: {response}")
+

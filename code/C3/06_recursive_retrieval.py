@@ -16,20 +16,26 @@
 # ==============================================================================
 
 import os
+from dotenv import load_dotenv
 import pandas as pd
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.schema import IndexNode
 from llama_index.experimental.query_engine import PandasQueryEngine
 from llama_index.core.retrievers import RecursiveRetriever
-from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.llms.deepseek import DeepSeek
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.google_genai import GoogleGenAI
+from llama_index.core.query_engine import RetrieverQueryEngine
 
-# 1. 配置模型 (使用你的 DeepSeek Key)
-# 生产环境建议使用 os.getenv("DEEPSEEK_API_KEY")
-Settings.llm = DeepSeek(model="deepseek-chat", api_key="sk-17d7a71fae104eaea98f4d2a5e619082")
-Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-zh-v1.5")
+load_dotenv()
 
+Settings.llm = GoogleGenAI(
+    model="models/gemini-2.0-flash", # 或者 "models/gemini-1.5-pro"
+    api_key=os.getenv("GOOGLE_API_KEY")
+)
+
+Settings.embed_model = HuggingFaceEmbedding(
+    model_name="BAAI/bge-small-zh-v1.5"
+)
 # 2. 加载数据并为每个工作表创建查询引擎和摘要节点
 excel_file = '../../data/C3/excel/movie.xlsx'
 xls = pd.ExcelFile(excel_file)
@@ -48,7 +54,7 @@ for sheet_name in xls.sheet_names:
     # 为当前工作表创建一个摘要节点（IndexNode）
     year = sheet_name.replace('年份_', '')
     summary = f"这个表格包含了年份为 {year} 的电影信息，可以用来回答关于这一年电影的具体问题。"
-    node = IndexNode(text=summary, index_id=sheet_name)
+    node = IndexNode(text=summary, index_id=sheet_name)#准备前台目录
     all_nodes.append(node)
     
     # 存储工作表名称到其查询引擎的映射
