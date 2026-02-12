@@ -1,38 +1,50 @@
 import os
 import sys
 import sqlite3
+from dotenv import load_dotenv
 
-# 添加text2sql模块路径
-sys.path.append(os.path.join(os.path.dirname(__file__), 'text2sql'))
+# 加载环境变量 (如 GOOGLE_API_KEY)
+load_dotenv()
 
-from text2sql.text2sql_agent import SimpleText2SQLAgent
+# 导入 Text2SQL 代理类
+# 直接从 text2sql 包导入，利用 __init__.py 暴露的接口
+# 这样 IDE 跳转 (Go to Definition) 会更准确
+from text2sql import SimpleText2SQLAgent
 
 
 def setup_demo():
-    """设置演示环境"""
+    """
+    设置演示环境：
+    1. 检查 API 密钥
+    2. 创建并通过数据填充演示用的 SQLite 数据库
+    3. 初始化 Text2SQL agent 并加载知识库
+    """
     print("=== Text2SQL框架演示 ===\n")
     
-    # 检查API密钥
-    api_key = os.getenv("DEEPSEEK_API_KEY")
+    # 1. 检查 API 密钥是否存在
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        print("先设置DEEPSEEK_API_KEY环境变量")
+        print("先设置GOOGLE_API_KEY环境变量")
         return None
     
-    # 创建演示数据库
+    # 2. 创建演示数据库 (如果存在则重建)
     print("创建演示数据库...")
     db_path = create_demo_database()
     
-    # 初始化Text2SQL代理
+    # 3. 初始化 Text2SQL 代理
     print("初始化Text2SQL代理...")
+    # 这里使用的是 SimpleText2SQLAgent，它是一个高级封装，
+    # 包含了 LLM 调用、Prompt 构建和 SQL 执行逻辑
     agent = SimpleText2SQLAgent(api_key=api_key)
     
-    # 连接数据库
+    # 4. 连接数据库 (Agent 需要知道数据库架构)
     print("连接数据库...")
     if not agent.connect_database(db_path):
         print("数据库连接失败!")
         return None
     
-    # 加载知识库
+    # 5. 加载知识库 (如少样本示例 Few-shot examples)
+    # 这有助于提高模型生成 SQL 的准确性
     print("加载知识库...")
     try:
         agent.load_knowledge_base()
@@ -45,16 +57,26 @@ def setup_demo():
 
 
 def create_demo_database():
-    """创建演示数据库"""
+    """
+    创建演示用的 SQLite 数据库 (text2sql_demo.db)
+    包含三张表：
+    - users: 用户信息
+    - products: 产品信息
+    - orders: 订单信息
+    并预置了一些示例数据。
+    """
     db_path = "text2sql_demo.db"
     
+    # 如果数据库文件已存在，先删除，确保每次运行都是全新的环境
     if os.path.exists(db_path):
         os.remove(db_path)
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # 创建用户表
+    # --- 创建表结构 ---
+    
+    # 1. 创建用户表
     cursor.execute("""
         CREATE TABLE users (
             id INTEGER PRIMARY KEY,
@@ -65,7 +87,7 @@ def create_demo_database():
         )
     """)
     
-    # 创建产品表
+    # 2. 创建产品表
     cursor.execute("""
         CREATE TABLE products (
             id INTEGER PRIMARY KEY,
@@ -76,7 +98,7 @@ def create_demo_database():
         )
     """)
     
-    # 创建订单表
+    # 3. 创建订单表 (关联用户和产品)
     cursor.execute("""
         CREATE TABLE orders (
             id INTEGER PRIMARY KEY,
@@ -90,7 +112,8 @@ def create_demo_database():
         )
     """)
     
-    # 插入示例数据
+    # --- 插入示例数据 ---
+    
     users_data = [
         (1, '张三', 'zhangsan@email.com', 25, '北京'),
         (2, '李四', 'lisi@email.com', 32, '上海'),
@@ -131,7 +154,9 @@ def create_demo_database():
 
 
 def run_demo_queries(agent):
-    """运行演示查询"""
+    """
+    运行一系列预定义的演示问题，展示 Text2SQL 的能力
+    """
     demo_questions = [
         "查询所有用户的姓名和邮箱",
         "年龄大于30的用户有哪些",
@@ -150,16 +175,18 @@ def run_demo_queries(agent):
         print("-" * 60)
         
         try:
+            # 核心调用：将自然语言问题传给 Agent，获取执行结果
             result = agent.query(question)
             
             if result["success"]:
-                print(f"成功! SQL: {result['sql']}")
+                print(f"成功! 生成的 SQL: {result['sql']}")
                 
+                # 格式化输出查询结果
                 if isinstance(result["results"], dict) and "rows" in result["results"]:
                     count = result["results"]["count"]
                     print(f"返回 {count} 行数据")
                     
-                    # 显示前2行数据
+                    # 仅显示前 2 行数据，避免刷屏
                     if count > 0:
                         for j, row in enumerate(result["results"]["rows"][:2]):
                             row_str = " | ".join(f"{k}: {v}" for k, v in row.items())
@@ -174,7 +201,7 @@ def run_demo_queries(agent):
                 
             else:
                 print(f"失败: {result['error']}")
-                print(f"SQL: {result['sql']}")
+                print(f"尝试生成的 SQL: {result['sql']}")
                 
         except Exception as e:
             print(f"执行错误: {str(e)}")
@@ -186,7 +213,7 @@ def run_demo_queries(agent):
 
 
 def cleanup(agent, db_path):
-    """清理资源"""
+    """清理资源：断开连接，删除演示用的数据库文件"""
     print("\n清理资源...")
     
     if agent:
@@ -198,8 +225,8 @@ def cleanup(agent, db_path):
 
 
 def main():
-    """主函数"""
-    # 设置演示环境
+    """主程序入口"""
+    # 1. 设置演示环境
     setup_result = setup_demo()
     
     if setup_result is None:
@@ -208,13 +235,14 @@ def main():
     agent, db_path = setup_result
     
     try:
-        # 运行演示查询
+        # 2. 运行演示查询
         run_demo_queries(agent)
         
     finally:
-        # 清理资源
+        # 3. 无论成功失败，最后都清理资源
         cleanup(agent, db_path)
 
 
 if __name__ == "__main__":
-    main() 
+    main()
+ 

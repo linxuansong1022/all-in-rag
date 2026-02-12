@@ -1,21 +1,31 @@
 import os
 from typing import List, Dict, Any
-from langchain_deepseek import ChatDeepSeek
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, SystemMessage
 
 
 class SimpleSQLGenerator:
-    """简化的SQL生成器"""
+    """
+    SQL 生成器 (Generation Layer)
+    核心作用：扮演一个“精通 SQL 的数据库专家”。
+    它接收自然语言问题和知识库检索到的上下文，输出 SQL 语句。
+    """
     
     def __init__(self, api_key: str = None):
-        self.llm = ChatDeepSeek(
-            model="deepseek-chat",
+        self.llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
             temperature=0,
-            api_key=api_key or os.getenv("DEEPSEEK_API_KEY")
+            google_api_key=api_key or os.getenv("GOOGLE_API_KEY")
         )
     
     def generate_sql(self, user_query: str, knowledge_results: List[Dict[str, Any]]) -> str:
-        """生成SQL语句"""
+        """
+        生成 SQL 语句
+        Prompt Engineering 核心：
+        1. Context Injection: 将检索到的表结构 (DDL) 和 例子 (Few-shot) 拼接到 Prompt 中。
+        2. Role Playing: 设定 "SQL 专家" 角色。
+        3. Constraints: 明确要求只返回 SQL，不解释。
+        """
         # 构建上下文
         context = self._build_context(knowledge_results)
         
@@ -38,7 +48,7 @@ SQL语句："""
         messages = [HumanMessage(content=prompt)]
         response = self.llm.invoke(messages)
         
-        # 清理SQL语句
+        # 清理SQL语句 (去除 markdown 标记)
         sql = response.content.strip()
         if sql.startswith("```sql"):
             sql = sql[6:]
@@ -50,7 +60,12 @@ SQL语句："""
         return sql.strip()
     
     def fix_sql(self, original_sql: str, error_message: str, knowledge_results: List[Dict[str, Any]]) -> str:
-        """修复SQL语句"""
+        """
+        修复 SQL 语句 (Self-Correction)
+        这是 Agent 的高级特性。
+        当生成的 SQL 执行报错时，不直接抛出异常，而是把【错误信息】和【原始SQL】喂回给 LLM。
+        LLM 具有很强的逻辑纠错能力，看到 "Column not found" 就会去检查 Schema 并修正字段名。
+        """
         context = self._build_context(knowledge_results)
         
         prompt = f"""请修复以下SQL语句的错误。

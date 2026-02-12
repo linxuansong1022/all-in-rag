@@ -6,11 +6,17 @@ from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
 
 class SimpleKnowledgeBase:
-    """知识库"""
+    """
+    知识库 (Knowledge Base)
+    核心作用：Schema Linking (模式链接) 的基础设施。
+    它不存业务数据（如订单记录），而是存元数据（表结构、字段含义、SQL案例）。
+    目标：当用户提问时，通过向量检索快速找到相关的表和字段，而不是把几百张表全塞给 LLM。
+    """
     
     def __init__(self, milvus_uri: str = "http://localhost:19530"):
         self.milvus_uri = milvus_uri
         self.client = MilvusClient(uri=milvus_uri)
+        # 使用 BGE-M3 模型，它对中文语义理解很好，适合做 Schema 匹配
         self.embedding_function = BGEM3EmbeddingFunction(use_fp16=False, device="cpu")
         self.collection_name = "text2sql_kb"
         self._setup_collection()
@@ -23,9 +29,9 @@ class SimpleKnowledgeBase:
         # 定义字段
         fields = [
             FieldSchema(name="pk", dtype=DataType.VARCHAR, is_primary=True, auto_id=True, max_length=100),
-            FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=4096),
-            FieldSchema(name="type", dtype=DataType.VARCHAR, max_length=32),  # ddl, qsql, description
-            FieldSchema(name="dense_vector", dtype=DataType.FLOAT_VECTOR, dim=self.embedding_function.dim["dense"])
+            FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=4096), # 存储 DDL、字段描述或 SQL 案例的文本
+            FieldSchema(name="type", dtype=DataType.VARCHAR, max_length=32),  # 类型标签：ddl, qsql, description
+            FieldSchema(name="dense_vector", dtype=DataType.FLOAT_VECTOR, dim=self.embedding_function.dim["dense"]) # 向量字段
         ]
         
         schema = CollectionSchema(fields, description="Text2SQL知识库")
@@ -37,7 +43,7 @@ class SimpleKnowledgeBase:
             consistency_level="Strong"
         )
         
-        # 创建索引
+        # 创建索引 (AUTOINDEX 自动选择最佳索引算法)
         index_params = self.client.prepare_index_params()
         index_params.add_index(
             field_name="dense_vector",
@@ -54,21 +60,25 @@ class SimpleKnowledgeBase:
         """加载所有知识库数据"""
         data_dir = os.path.join(os.path.dirname(__file__), "data")
         
-        # 加载DDL数据
+        # 1. 加载 DDL (Create Table 语句)
+        # 作用：让 LLM 知道有哪些表，以及字段的数据类型（int, varchar）。
         ddl_path = os.path.join(data_dir, "ddl_examples.json")
         if os.path.exists(ddl_path):
             with open(ddl_path, 'r', encoding='utf-8') as f:
                 ddl_data = json.load(f)
             self._add_ddl_data(ddl_data)
         
-        # 加载Q->SQL数据
+        # 2. 加载 Few-shot Examples (Q->SQL 对)
+        # 作用：提供“解题思路”。遇到复杂查询（如环比增长），检索出类似的 SQL 例子给 LLM 参考。
         qsql_path = os.path.join(data_dir, "qsql_examples.json")
         if os.path.exists(qsql_path):
             with open(qsql_path, 'r', encoding='utf-8') as f:
                 qsql_data = json.load(f)
             self._add_qsql_data(qsql_data)
         
-        # 加载描述数据
+        # 3. 加载 Description (业务描述)
+        # 作用：解决“同义词”问题。比如用户说“营业额”，数据库里叫 `gmv`。
+        # 通过存储 `gmv: 商品交易总额，即营业额`，向量检索能把这两个词联系起来。
         desc_path = os.path.join(data_dir, "db_descriptions.json")
         if os.path.exists(desc_path):
             with open(desc_path, 'r', encoding='utf-8') as f:
@@ -133,7 +143,7 @@ class SimpleKnowledgeBase:
         if not contents:
             return
         
-        # 生成嵌入
+        # 生成嵌入 (Vectorization)
         embeddings = self.embedding_function(contents)
         
         # 构建插入数据，每一行是一个字典
@@ -152,7 +162,11 @@ class SimpleKnowledgeBase:
         )
     
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """搜索相关内容"""
+        """
+        核心检索方法
+        根据用户问题，在向量空间中寻找最相关的 Schema 和 Examples。
+        这就是 Schema Linking 的具体实现。
+        """
         self.client.load_collection(collection_name=self.collection_name)
             
         query_embeddings = self.embedding_function([query])

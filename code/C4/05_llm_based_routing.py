@@ -1,13 +1,16 @@
 import os
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_deepseek import ChatDeepSeek
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.runnables import RunnableBranch
+from dotenv import load_dotenv
 
-llm = ChatDeepSeek(
-    model="deepseek-chat", 
+load_dotenv()
+
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash", 
     temperature=0, 
-    api_key=os.getenv("DEEPSEEK_API_KEY")
+    google_api_key=os.getenv("GOOGLE_API_KEY")
     )
 
 # 1. 设置不同菜系的处理链
@@ -38,9 +41,9 @@ classifier_chain = classifier_prompt | llm | StrOutputParser()
 
 # 定义路由分支
 router_branch = RunnableBranch(
-    (lambda x: "川菜" in x["topic"], sichuan_chain),
-    (lambda x: "粤菜" in x["topic"], cantonese_chain),
-    general_chain  # 默认选项
+    (lambda x: "川菜" in x["topic"], sichuan_chain),# 规则1: 如果标签包含“川菜”，就把客人送给 sichuan_chain
+    (lambda x: "粤菜" in x["topic"], cantonese_chain),# 规则2: 如果标签包含“粤菜”，就把客人送给 cantonese_chain
+    general_chain  # 默认选项：如果以上都不匹配，就交给 general_chain
 )
 
 # 组合成完整路由链
